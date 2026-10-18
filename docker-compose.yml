@@ -1,0 +1,174 @@
+# TESSERA - Geo-Agentic Real-Time Spatial Stream Analytics
+# Data Source -> Kafka -> Stream Processing -> Storage -> Analytics/Dashboard
+#
+#   start.bat            build + start everything, open the dashboard
+#   http://localhost:8000  live dashboard        http://localhost:8085  Kafka UI
+#
+name: tessera
+
+# The app image is built ONCE by the `init` service; every other service reuses it.
+# (Several services building the same image tag in parallel fails on newer Docker Desktop.)
+x-tessera: &tessera
+  image: tessera-app:latest
+  pull_policy: never
+  environment: &env
+    KAFKA_BOOTSTRAP: kafka:29092
+    PG_DSN: "host=timescaledb port=5432 dbname=tessera user=tessera password=tessera"
+    TZ: ${TZ:-Asia/Kolkata}
+    # scenario, shared by every service so the map, the verifier's city bounds and the producer agree:
+    #   synthetic (default) = live Indian mixed traffic on real Bengaluru roads
+    #   tdrive              = replay of Microsoft T-Drive (Beijing) for benchmarking
+    SOURCE_MODE: ${SOURCE_MODE:-synthetic}
+    CITY: ${CITY:-}
+    BMTC_LIVE: ${BMTC_LIVE:-1}           # india mode: add REAL BMTC buses (Namma BMTC API); 0 = simulation only
+  restart: unless-stopped
+  depends_on:
+    init:
+      condition: service_completed_successfully
+
+services:
+  # ---------------------------------------------------------------- infrastructure
+  kafka:
+    image: apache/kafka:3.8.1
+    hostname: kafka
+    ports:
+      - "9092:9092"
+    environment:
+      CLUSTER_ID: "5L6g3nShT-eMCtK--X86sw"   # base64 UUID required by KRaft storage format
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: PLAINTEXT://:29092,CONTROLLER://:9093,PLAINTEXT_HOST://:9092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+      KAFKA_NUM_PARTITIONS: 3
+      KAFKA_LOG_RETENTION_HOURS: 12
+      KAFKA_LOG_CLEANER_MIN_COMPACTION_LAG_MS: 0
+      KAFKA_HEAP_OPTS: "-Xms256m -Xmx768m"
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092 > /dev/null 2>&1"]
+      interval: 10s
+      timeout: 10s
+      retries: 20
+      start_period: 20s
+    restart: unless-stopped
+
+  timescaledb:
+    image: timescale/timescaledb:2.17.2-pg16
+    hostname: timescaledb
+    ports:
+      - "5433:5432"          # 5433 on Windows so it never clashes with a local PostgreSQL
+    environment:
+      POSTGRES_USER: tessera
+      POSTGRES_PASSWORD: tessera
+      POSTGRES_DB: tessera
+      TIMESCALEDB_TELEMETRY: "off"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./db/init.sql:/docker-entrypoint-initdb.d/100-tessera.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tessera -d tessera"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+    restart: unless-stopped
+
+  kafka-ui:
+    image: provectuslabs/kafka-ui:v0.7.2
+    ports:
+      - "8085:8080"
+    environment:
+      KAFKA_CLUSTERS_0_NAME: tessera
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:29092
+      DYNAMIC_CONFIG_ENABLED: "false"
+    depends_on:
+      kafka:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------- one-shot setup
+  init:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    image: tessera-app:latest
+    environment: *env
+    command: ["python", "-m", "tessera.services.topic_init"]
+    depends_on:
+      kafka:
+        condition: service_healthy
+      timescaledb:
+        condition: service_healthy
+    restart: on-failure
+
+  # ---------------------------------------------------------------- pipeline
+  producer:                       # DATA SOURCE -> Kafka (gps.raw)
+    <<: *tessera
+    command: ["python", "-m", "tessera.services.producer"]
+    environment:
+      <<: *env
+      NUM_VEHICLES: ${NUM_VEHICLES:-500}
+      OTD_API_KEY: ${OTD_API_KEY:-}            # Delhi live feed (SOURCE_MODE=india or delhi); read from .env
+      SPEEDUP: ${SPEEDUP:-1}
+      TDRIVE_DIR: /data/tdrive
+    volumes:
+      - ./data:/data:ro
+
+  blr-feed:                       # simulated BMTC GTFS-Realtime feed for Bengaluru (only active when SOURCE_MODE=india)
+    <<: *tessera
+    command: ["python", "-m", "tessera.services.blr_feed"]
+    environment:
+      <<: *env
+      BLR_VEHICLES: ${BLR_VEHICLES:-4500}      # simulated Bengaluru fleet, each reporting every 6 s (~750 events/s)
+    ports:
+      - "8090:8090"            # open http://localhost:8090/VehiclePositions.pb - same format as Delhi's API
+
+  fastplane:                      # STREAM PROCESSING (consumer group tessera-fastplane, scaled to 2)
+    <<: *tessera
+    command: ["python", "-m", "tessera.services.fast_plane"]
+    deploy:
+      replicas: 2
+    stop_grace_period: 20s
+
+  gate:                           # surprise gate: G* + BH-FDR + spatio-semantic cache
+    <<: *tessera
+    command: ["python", "-m", "tessera.services.gate"]
+
+  slowplane:                      # reasoning agents -> verified GS-IR plan patches
+    <<: *tessera
+    command: ["python", "-m", "tessera.services.slow_plane"]
+    environment:
+      <<: *env
+      AGENT_LATENCY_S: ${AGENT_LATENCY_S:-2}
+      FAULT_INJECTION_RATE: ${FAULT_INJECTION_RATE:-0.2}
+      OLLAMA_URL: ${OLLAMA_URL:-}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3.2}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  sink:                           # STORAGE: Kafka -> TimescaleDB
+    <<: *tessera
+    command: ["python", "-m", "tessera.services.sink"]
+
+  dashboard:                      # ANALYTICS / DASHBOARD
+    <<: *tessera
+    command: ["python", "-m", "tessera.dashboard.app"]
+    ports:
+      - "8000:8000"
+
+  # ---------------------------------------------------------------- tests (docker compose run --rm tests)
+  tests:
+    image: tessera-app:latest
+    pull_policy: never
+    command: ["python", "-m", "pytest", "-q", "tests"]
+    profiles: ["test"]
+
+volumes:
+  pgdata:

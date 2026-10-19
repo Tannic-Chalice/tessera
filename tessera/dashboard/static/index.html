@@ -1,0 +1,673 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TESSERA · live</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#0d1014; --panel:#151a20; --panel2:#1b2129; --line:#262e38; --text:#e6e9ee; --muted:#8a94a3;
+  --accent:#4cc3a6; --warn:#f2b84b; --bad:#ef5b5b; --info:#6aa7ff; --violet:#b48cff;
+  --mono:'IBM Plex Mono',ui-monospace,Consolas,monospace; --sans:'IBM Plex Sans',system-ui,Segoe UI,sans-serif;
+}
+*{box-sizing:border-box} html,body{margin:0;background:var(--bg);color:var(--text);font-family:var(--sans);font-size:14px}
+header{display:flex;align-items:center;gap:16px;padding:12px 20px;border-bottom:1px solid var(--line);position:sticky;top:0;background:var(--bg);z-index:1000;flex-wrap:wrap}
+.brand{font-weight:600;letter-spacing:.14em;font-size:15px}
+.brand small{display:block;font-weight:400;letter-spacing:0;color:var(--muted);font-size:11.5px}
+.chip{font-family:var(--mono);font-size:12px;padding:4px 9px;border:1px solid var(--line);border-radius:999px;color:var(--muted);white-space:nowrap}
+.chip b{color:var(--text);font-weight:500}
+.dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--muted);margin-right:6px;vertical-align:1px}
+.dot.ok{background:var(--accent);box-shadow:0 0 8px var(--accent)} .dot.bad{background:var(--bad)}
+.spacer{flex:1}
+main{padding:16px 20px;display:grid;gap:14px;grid-template-columns:repeat(12,1fr)}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px;min-width:0}
+.panel h2{margin:0 0 10px;font-size:12px;font-weight:500;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);display:flex;align-items:center;gap:8px}
+.al .tag{font-family:var(--mono);color:var(--accent);font-size:11px}
+.panel h2 .tag{font-family:var(--mono);text-transform:none;letter-spacing:0;color:var(--accent)}
+.kpis{grid-column:1/-1;display:grid;grid-template-columns:repeat(6,1fr);gap:14px}
+.kpi{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px 14px}
+.kpi .l{color:var(--muted);font-size:11.5px;text-transform:uppercase;letter-spacing:.06em}
+.kpi .v{font-family:var(--mono);font-size:24px;margin-top:4px}
+.kpi .s{color:var(--muted);font-size:12px;margin-top:2px;font-family:var(--mono)}
+.kpi .x{color:var(--muted);font-size:11.5px;line-height:1.4;margin-top:8px;padding-top:8px;border-top:1px solid var(--line)}
+#mapwrap{grid-column:1/9;padding:0;overflow:hidden;position:relative}
+#map{height:560px;background:#0a0d10}
+.osm-dark{filter:invert(1) hue-rotate(180deg) brightness(.75) contrast(.9) saturate(.3)}
+.mapbar{position:absolute;top:10px;right:10px;z-index:500;display:flex;gap:6px;background:rgba(13,16,20,.85);border:1px solid var(--line);border-radius:8px;padding:6px}
+.mapbar button{background:transparent;border:0;color:var(--muted);font:12px var(--sans);padding:5px 9px;border-radius:5px;cursor:pointer}
+.mapbar button.on{background:var(--panel2);color:var(--text)}
+.legend{position:absolute;left:10px;bottom:10px;z-index:500;background:rgba(13,16,20,.88);border:1px solid var(--line);border-radius:8px;padding:8px 10px;font-size:12px;color:var(--muted);line-height:1.7}
+.legend i{display:inline-block;width:18px;height:3px;vertical-align:middle;margin-right:6px}
+#alertsP{grid-column:9/13;display:flex;flex-direction:column;max-height:562px}
+#alerts{overflow:auto;flex:1;margin:0 -6px;padding:0 6px}
+.al{border-left:3px solid var(--muted);padding:6px 8px;margin-bottom:6px;background:var(--panel2);border-radius:0 6px 6px 0}
+.al .t{font-family:var(--mono);font-size:11px;color:var(--muted);display:flex;justify-content:space-between;gap:8px}
+.al .m{font-size:12.5px;margin-top:2px;line-height:1.35;word-break:break-word}
+.al.high{border-color:var(--bad)} .al.medium{border-color:var(--warn)} .al.low{border-color:var(--info)} .al.info{border-color:var(--violet)}
+.filters{display:flex;gap:4px;flex-wrap:wrap;margin-bottom:8px}
+.filters button{font:11px var(--mono);background:var(--panel2);border:1px solid var(--line);color:var(--muted);padding:3px 7px;border-radius:5px;cursor:pointer}
+.filters button.on{color:var(--text);border-color:var(--accent)}
+.w4{grid-column:span 4} .w6{grid-column:span 6} .w8{grid-column:span 8} .w12{grid-column:1/-1} .w3{grid-column:span 3}
+.panel>canvas{max-width:100%}
+.leaflet-container canvas{max-width:none}
+table{width:100%;border-collapse:collapse;font-size:12.5px}
+th{text-align:left;color:var(--muted);font-weight:500;padding:5px 6px;border-bottom:1px solid var(--line);font-size:11.5px}
+td{padding:5px 6px;border-bottom:1px solid #1f262f;font-family:var(--mono);font-size:12px;vertical-align:top}
+.parts{display:flex;gap:2px;flex-wrap:wrap}
+.pt{font:10.5px var(--mono);padding:2px 5px;border-radius:3px;background:var(--panel2);color:var(--muted)}
+pre{font-family:var(--mono);font-size:11.5px;line-height:1.5;background:#0f1318;border:1px solid var(--line);border-radius:8px;padding:12px;overflow:auto;max-height:380px;margin:0;color:#cfd6df}
+.btn{background:var(--panel2);border:1px solid var(--line);color:var(--text);font:12.5px var(--sans);padding:7px 11px;border-radius:7px;cursor:pointer;margin:0 6px 6px 0}
+.btn:hover{border-color:var(--accent)} .btn.warn{border-color:#5a4520} .btn.go{border-color:#1f5446}
+.note{color:var(--muted);font-size:12.5px;line-height:1.45;margin:4px 0 10px}
+.route-search{width:min(420px,100%);background:var(--panel2);border:1px solid var(--line);color:var(--text);padding:8px 10px;border-radius:7px;font:12.5px var(--sans);margin:4px 0 10px}
+.route-table-wrap{max-height:300px;overflow:auto}
+.route-table-wrap td{font-family:var(--sans);font-size:12px}
+
+.bar{height:6px;background:#0f1318;border-radius:3px;overflow:hidden} .bar>div{height:100%;background:var(--accent)}
+.muted{color:var(--muted)}
+#languageSwitch .btn[aria-pressed="true"]{border-color:var(--accent);color:var(--text);background:var(--panel2)}
+/* plain-language extras: hidden in the technical view, shown only in the simple view */
+.simple-only{display:none}
+body.simple .simple-only{display:block}
+.gloss{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:6px 22px;margin-top:10px}
+.gloss div{font-size:12.5px;line-height:1.45;color:var(--muted)} .gloss b{color:var(--text);font-weight:500}
+.intro p{margin:0;font-size:13.5px;line-height:1.55;color:var(--text)}
+@media (max-width:1100px){#mapwrap,#alertsP,.w4,.w6,.w8,.w3{grid-column:1/-1}.kpis{grid-template-columns:repeat(3,1fr)}}
+@media (max-width:640px){.kpis{grid-template-columns:repeat(2,1fr)}main{padding:12px}}
+</style>
+</head>
+<body>
+<header>
+  <div class="brand">TESSERA<small data-s="Live traffic map with smart incident detection">Two-timescale Event-Spatial Stream Engine with Reasoning Agents</small></div>
+  <span class="chip"><span class="dot" id="kdot"></span><span data-s="Data pipeline">Kafka</span> <b id="kstat">connecting</b></span>
+  <span class="chip"><span data-s="rules version">plan</span> <b id="planv">v1</b></span>
+  <span class="chip" id="shadowchip" style="display:none"><span data-s="test version">shadow</span> <b id="shadowv"></b></span>
+  <span class="chip"><span data-s="decision method">planner</span> <b id="planner">–</b></span>
+  <span class="chip">city <b id="city">–</b></span>
+  <span id="citybar" style="display:none;gap:6px;align-items:center"></span>
+  <span class="chip" id="feedState">Transit feeds: connecting</span>
+  <span class="spacer"></span>
+  <div id="languageSwitch" role="group" aria-label="Explanation level" style="display:flex;gap:4px;align-items:center">
+    <button type="button" class="btn" id="simpleMode" aria-pressed="false" style="margin:0">Simple language</button>
+    <button type="button" class="btn go" id="technicalMode" aria-pressed="true" style="margin:0">Full technical</button>
+  </div>
+  <span class="chip"><span data-s="latest data from">event time</span> <b id="clock">–</b></span>
+</header>
+
+<main>
+  <section class="panel w12 intro simple-only">
+    <h2>What am I looking at?</h2>
+    <p>This screen watches city traffic live. Vehicles (mostly buses) send their GPS position every few seconds. The map is divided into small hexagon-shaped patches, and each patch is coloured by how much of its traffic is crawling. When something looks wrong, the system can ask an AI assistant to take a closer look and draw a circle (a “monitored area”) around the trouble spot. Every suggestion from the AI is checked by a safety checker before it is used.</p>
+    <div class="gloss">
+      <div><b>Update</b> — one GPS location report sent by a vehicle.</div>
+      <div><b>Patch</b> — one small hexagon on the map.</div>
+      <div><b>Slow traffic</b> — vehicles moving slower than 10 km/h.</div>
+      <div><b>Fast processing</b> — the quick route that handles every update straight away, with no AI involved.</div>
+      <div><b>AI assistant</b> — the slower, thinking part that investigates suspicious patches.</div>
+      <div><b>Monitored area</b> — a circle on the map that the system keeps a special eye on.</div>
+      <div><b>Worker</b> — one copy of a program that handles a share of the incoming data.</div>
+      <div><b>Backlog</b> — updates still waiting to be processed. Small means the system is keeping up.</div>
+      <div><b>ms (millisecond)</b> — a thousandth of a second. A lower number means a faster system.</div>
+    </div>
+  </section>
+
+  <section class="kpis">
+    <div class="kpi"><div class="l" data-s="Location updates received">Ingested (gps.raw)</div><div class="v" id="k_eps">–</div><div class="s" id="k_eps_s" data-s="updates per second">events / s</div><div class="x simple-only">How many GPS location reports the system is receiving every second.</div></div>
+    <div class="kpi"><div class="l" data-s="Processing delay (slowest 1%)">Fast-plane p99</div><div class="v" id="k_p99">–</div><div class="s" id="k_p99_s" data-s="quick route, no AI involved">tuple path, no inference</div><div class="x simple-only">How long the system takes to handle a location update. “Slowest 1%” means 99 out of 100 updates are faster than this number.</div></div>
+    <div class="kpi"><div class="l" data-s="Times the AI assistant was called">Agent invocations</div><div class="v" id="k_inv">–</div><div class="s" id="k_inv_s" data-s="only when a statistical check says so">gated by G* + BH-FDR</div><div class="x simple-only">How often the system asked the AI to look closely at a suspicious patch. A statistical check decides this, so the AI is only used when something looks truly unusual.</div></div>
+    <div class="kpi"><div class="l" data-s="Earlier answers reused">Cache reuse</div><div class="v" id="k_cache">–</div><div class="s" id="k_cache_s" data-s="reuse distance: –">k* = –</div><div class="x simple-only">How often an earlier AI answer was reused for a nearby, similar patch instead of asking the AI again. It saves time and cost.</div></div>
+    <div class="kpi"><div class="l" data-s="Late / set-aside updates">Late / DLQ</div><div class="v" id="k_late">–</div><div class="s" data-s="late updates / updates set aside for review">side output · dead letters</div><div class="x simple-only">Late: updates that arrived after their time slot had already closed. Set aside: updates that could not be used and were parked for later review.</div></div>
+    <div class="kpi"><div class="l" data-s="Bad AI suggestions blocked">Verifier blocks</div><div class="v" id="k_ver">–</div><div class="s" id="k_ver_s" data-s="changes suggested · approved">patches · promoted</div><div class="x simple-only">How many changes suggested by the AI were refused by the safety checker because they looked wrong, for example pointing at the wrong place.</div></div>
+  </section>
+
+  <section class="panel" id="mapwrap">
+    <div id="map"></div>
+    <div class="mapbar" id="modebar">
+      <button data-m="slow" class="on" data-s="Slow traffic">Slow fraction</button>
+      <button data-m="density" data-s="Crowding">Density</button>
+      <button data-m="partition" data-s="Data lane">Kafka partition</button>
+      <button data-m="instance" data-s="Worker">Consumer</button>
+    </div>
+    <div class="legend" id="legend"></div>
+  </section>
+
+  <section class="panel" id="alertsP">
+    <h2><span data-s="Live warnings and updates">Live alerts</span> <span class="tag" id="acount"></span></h2>
+    <div class="filters" id="afilters"></div>
+    <div id="alerts"></div>
+  </section>
+
+  <section class="panel w12" id="transitPanel" style="display:none">
+    <h2>Transit schedule · routes and stops <span class="tag" id="routeCountTag"></span></h2>
+    <p class="note" id="transitNote">Routes and stops are static GTFS schedule data from Mobility Database, not real-time vehicle positions. The map limits drawn paths and stop markers for responsiveness; the complete route list is searchable below.</p>
+    <input id="routeSearch" class="route-search" type="search" placeholder="Search route number, route ID or destination">
+    <div class="route-table-wrap">
+      <table><thead><tr><th>Route</th><th>Destination / route name</th><th>GTFS shape</th><th>Map path</th></tr></thead>
+      <tbody id="routeRows"><tr><td colspan="4" class="muted">Select Chennai, Hyderabad or Hubballi–Dharwad to load its schedule.</td></tr></tbody></table>
+    </div>
+  </section>
+
+  <section class="panel w8">
+    <h2><span data-s="How much data is handled, and how quickly">Throughput &amp; latency</span> <span class="tag" data-s="the AI can be slow without slowing down live updates">P1: agent latency never enters the data path</span></h2>
+    <canvas id="chart1" height="120"></canvas>
+  </section>
+  <section class="panel w4">
+    <h2 data-s="Try the demo">Demo controls</h2>
+    <p class="note" data-s="Make the AI assistant 30 seconds slower on purpose and watch: the live traffic updates should stay just as fast.">Inject a 30 s reasoning delay into the agent and watch fast-plane p99 stay flat (hypothesis H1).</p>
+    <button class="btn warn" onclick="ctl({type:'set_agent_delay',seconds:30})" data-s="Slow the AI assistant by 30 s">Inject 30 s agent latency</button>
+    <button class="btn go" onclick="ctl({type:'set_agent_delay',seconds:2})" data-s="Back to normal (2 s)">Restore 2 s</button>
+    <p class="note" data-s="How often the AI deliberately makes up wrong map rules (the safety checker should catch them):">Agent "geo-hallucination" rate (broken GS-IR patches the verifier must catch):</p>
+    <button class="btn" onclick="ctl({type:'set_fault_rate',rate:0})">0 %</button>
+    <button class="btn" onclick="ctl({type:'set_fault_rate',rate:0.2})">20 %</button>
+    <button class="btn" onclick="ctl({type:'set_fault_rate',rate:0.6})">60 %</button>
+    <p class="note" id="clocknote" data-s="Bengaluru clock (practice data): preview rush-hour traffic at any time of day.">Bengaluru clock (simulated feed): show peak-hour traffic at any time of day.</p>
+    <button class="btn" onclick="ctl({type:'sim_hour',hour:null})" data-s="Real time now">Live IST</button>
+    <button class="btn warn" onclick="ctl({type:'sim_hour',hour:9.5})" data-s="Morning rush hour (9:30 AM)">9:30 AM peak</button>
+    <button class="btn" onclick="ctl({type:'sim_hour',hour:13.5})">1:30 PM</button>
+    <button class="btn warn" onclick="ctl({type:'sim_hour',hour:18.5})" data-s="Evening rush hour (6:30 PM)">6:30 PM peak</button>
+    <button class="btn" onclick="ctl({type:'sim_hour',hour:2})" data-s="Middle of the night (2 AM)">2 AM</button>
+    <h2 style="margin-top:14px"><span data-s="Waiting for a person to approve">Pending approvals</span> <span class="tag" data-s="human check">governance</span></h2>
+    <div id="held" class="note" data-s="Nothing waiting.">none</div>
+  </section>
+
+  <section class="panel w6">
+    <h2 data-s="Incoming data channels and their lanes">Kafka topics &amp; partitions</h2>
+    <p class="note simple-only">Incoming data is sorted into channels (for example “raw location updates”). Each channel is split into numbered lanes so that several workers can read it at the same time. The number next to each lane is how many updates have passed through it so far.</p>
+    <table><thead><tr><th data-s="data channel">topic</th><th data-s="lanes (updates so far in each)">partitions (end offsets)</th><th data-s="updates">msgs</th></tr></thead><tbody id="topics"></tbody></table>
+  </section>
+  <section class="panel w6">
+    <h2><span data-s="Worker teams">Consumer groups</span> <span class="tag" data-s="who handles which lane, and how far behind they are">partition assignment &amp; lag</span></h2>
+    <p class="note simple-only">Each team of workers takes care of one job. “Backlog” is how many updates are still waiting for that team. A small number means the team is keeping up.</p>
+    <table><thead><tr><th data-s="team">group</th><th data-s="status">state</th><th data-s="workers → lanes they handle">members → partitions</th><th data-s="backlog">lag</th></tr></thead><tbody id="groups"></tbody></table>
+    <p class="note" id="bcast"></p>
+  </section>
+
+  <section class="panel w6">
+    <h2><span data-s="Current traffic-response rules">Active GS-IR plan</span> <span class="tag" id="plantag"></span></h2>
+    <div id="planplain" class="note simple-only"></div>
+    <p class="note simple-only">The original technical text of these rules, for specialists:</p>
+    <pre id="plantext"></pre>
+  </section>
+  <section class="panel w6">
+    <h2><span data-s="History of rule changes">Plan history</span> <span class="tag" data-s="check → test quietly → put into use">verify → shadow → promote</span></h2>
+    <table><thead><tr><th data-s="version">v</th><th data-s="step">stage</th><th data-s="outcome">disposition</th><th data-s="why">reason</th></tr></thead><tbody id="plans"></tbody></table>
+  </section>
+
+  <section class="panel w4">
+    <h2><span data-s="Safety checker: mistakes caught">Geo-Verifier catch log</span> <span class="tag" data-s="">H5</span></h2>
+    <p class="note simple-only">We deliberately feed the checker wrong map rules to see whether it spots them. “Caught 3/4” means it blocked 3 of the 4 wrong rules.</p>
+    <table><thead><tr><th data-s="type of mistake">fault class</th><th>caught</th></tr></thead><tbody id="ver"></tbody></table>
+    <button class="btn" style="margin-top:10px" onclick="bench()" data-s="Test how good the checker is">Run fault-injection benchmark</button>
+    <div id="benchout" class="note"></div>
+  </section>
+  <section class="panel w4">
+    <h2><span data-s="How similar nearby decisions are">Decision-field variogram</span> <span class="tag" data-s="how far an answer can be reused">reuse radius k*</span></h2>
+    <canvas id="vario" height="170"></canvas>
+    <p class="note" id="varionote"></p>
+  </section>
+  <section class="panel w4">
+    <h2 data-s="Recent AI decisions">Recent agent decisions</h2>
+    <div id="decisions"></div>
+  </section>
+
+  <section class="panel w4">
+    <h2><span data-s="How quickly incidents were noticed">Incident detection</span> <span class="tag" data-s="staged test incidents">injected ground truth</span></h2>
+    <table><thead><tr><th>incident</th><th data-s="noticed after">first detection</th></tr></thead><tbody id="det"></tbody></table>
+  </section>
+  <section class="panel w4">
+    <h2><span data-s="Recovery if something crashes">Fault tolerance</span> <span class="tag" data-s="saved progress points">checkpoints</span></h2>
+    <p class="note simple-only">The system regularly saves how far it has got. If a worker crashes, its replacement carries on from the saved position instead of starting again.</p>
+    <table><thead><tr><th data-s="lane">partition</th><th data-s="saved position">offset</th><th data-s="worker">owner</th><th data-s="saved how long ago">age</th></tr></thead><tbody id="ckpt"></tbody></table>
+  </section>
+  <section class="panel w4">
+    <h2><span data-s="Saved data">Storage</span> <span class="tag" data-s="database">TimescaleDB</span></h2>
+    <table><tbody id="storage"></tbody></table>
+    <p class="note simple-only">The numbers show how many records of each kind are saved in the database.</p>
+    <h2 style="margin-top:14px" data-s="Memory of events at places">Geo-episodic memory</h2>
+    <div id="gem" class="note"></div>
+  </section>
+</main>
+
+<script>
+const $ = id => document.getElementById(id);
+
+/* ---------- Explanation level ----------
+   Technical view = the original wording, untouched.
+   Simple view    = plain-language wording written for every label, metric and table.
+   Static labels carry data-s="plain text"; dynamic content uses T(technical, plain). */
+let explanationMode = 'technical';
+const isSimple = () => explanationMode === 'simple';
+const T = (tech, plain) => isSimple() ? plain : tech;
+const human = s => String(s ?? '').replace(/_/g, ' ');
+
+const staticEls = Array.from(document.querySelectorAll('[data-s]'));
+staticEls.forEach(el => { el.dataset.t = el.innerHTML; });
+function applyStatic() {
+  staticEls.forEach(el => { el.innerHTML = isSimple() ? el.dataset.s : el.dataset.t; });
+}
+
+const ALERT_LABEL = {
+  GEOFENCE_ENTER: 'vehicle entered a monitored area',
+  HOTSPOT_DETECTED: 'trouble spot found',
+  AGENT_DECISION: 'AI decision',
+  CACHED_DECISION: 'reused AI decision',
+  DISTILLED_CONGESTION: 'congestion spotted by quick rule',
+  VERIFIER_REJECTED: 'bad AI suggestion blocked',
+  PLAN_PROMOTED: 'new rules put into use',
+  APPROVAL_REQUIRED: 'needs a person to approve'
+};
+const alertLabel = t => ALERT_LABEL[t] || human(t).toLowerCase();
+
+const STAGE_LABEL = {active:'in use', shadow:'being tested quietly', rejected:'rejected', held:'waiting for approval',
+  verified:'checked', proposed:'suggested', candidate:'suggested', superseded:'replaced'};
+const DISP_LABEL = {hold_for_approval:'needs a person to approve', auto_promote:'put into use automatically',
+  promote:'put into use', promoted:'put into use', reject:'rejected', rejected:'rejected', accept:'accepted', accepted:'accepted'};
+const SOURCE_LABEL = {agent:'AI assistant', cache:'reused earlier answer'};
+const STORAGE_LABEL = {tile_aggregates:'map patch summaries', alerts:'warnings', agent_decisions:'AI decisions',
+  ops_metrics:'system health readings', gem_facts:'remembered facts about places', checkpoints:'saved progress points'};
+const STATE_LABEL = {stable:'running normally', preparingrebalance:'re-arranging work', completingrebalance:'re-arranging work',
+  empty:'no workers right now', dead:'stopped', unknown:'unknown'};
+const stateLabel = s => STATE_LABEL[String(s||'').toLowerCase().replace(/_/g,'')] || human(s).toLowerCase();
+
+function topicPlain(name) {
+  const n = String(name).toLowerCase();
+  const rules = [['dlq','updates set aside for review'], ['dead','updates set aside for review'], ['late','late updates'],
+    ['raw','raw location updates from vehicles'], ['agg','traffic summary per map patch'], ['alert','warnings'],
+    ['metric','system health readings'], ['plan','traffic-response rules'], ['truth','known test incidents'],
+    ['surprise','unusual events flagged'], ['decision','AI decisions'], ['gov','control commands']];
+  for (const [k, v] of rules) if (n.includes(k)) return v;
+  return null;
+}
+function groupPlain(name) {
+  const n = String(name).toLowerCase();
+  if (n.includes('fast')) return 'fast processing team';
+  if (n.includes('gate')) return 'gatekeeper team (decides when to ask the AI)';
+  if (n.includes('slow')) return 'AI reasoning team';
+  if (n.includes('sink')) return 'data-saving team (writes to the database)';
+  return null;
+}
+function assignedLabel(a) {
+  if (!isSimple()) return esc(a);
+  const m = /^(.*)\[(\d+)\]$/.exec(a);
+  return m ? esc('lane ' + m[2] + ' of ' + (topicPlain(m[1]) || m[1])) : esc(a);
+}
+
+const fmt = (x, d=0) => (x===undefined||x===null||isNaN(x)) ? '–' : Number(x).toLocaleString(undefined,{maximumFractionDigits:d,minimumFractionDigits:d});
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const PCOL = ['#4cc3a6','#6aa7ff','#f2b84b','#ef5b5b','#b48cff','#7fd1e8','#e88fb7','#a3c46b'];
+let mode = 'slow', snap = null, alertFilter = null, lastHist = null, lastBench = null;
+
+const map = L.map('map', {zoomControl:true, preferCanvas:true}).setView([12.955,77.61], 12);
+// free OpenStreetMap tiles (no API key), darkened with a CSS filter to match the theme
+L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+  {attribution:'&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors', maxZoom:19, className:'osm-dark'}).addTo(map);
+const roadLayer = L.layerGroup().addTo(map), transitRouteLayer = L.layerGroup().addTo(map),
+      transitStopLayer = L.layerGroup().addTo(map), lmLayer = L.layerGroup().addTo(map),
+      hexLayer = L.layerGroup().addTo(map), fenceLayer = L.layerGroup().addTo(map),
+      truthLayer = L.layerGroup().addTo(map), alertLayer = L.layerGroup().addTo(map),
+      vehicleLayer = L.layerGroup().addTo(map);
+let centered = false, lmCity = null, loadedTransitCity = null, transitData = null, transitLoadToken = 0;
+
+function slowColor(f){ // green -> amber -> red
+  const t = Math.min(1, f/0.6);
+  const a=[76,195,166], b=[242,184,75], c=[239,91,91];
+  const m = t<0.5 ? a.map((v,i)=>v+(b[i]-v)*t*2) : b.map((v,i)=>v+(c[i]-v)*(t-0.5)*2);
+  return `rgb(${m.map(Math.round).join(',')})`;
+}
+const instColor = {}; let instN = 0;
+function colorFor(t){
+  if (mode==='slow') return slowColor(t.sf);
+  if (mode==='density') { const x = Math.min(1, t.n/120); return `rgba(106,167,255,${0.15+0.85*x})`; }
+  if (mode==='partition') return PCOL[(t.part??0)%PCOL.length];
+  if (!(t.inst in instColor)) instColor[t.inst] = PCOL[(instN++)%PCOL.length];
+  return instColor[t.inst];
+}
+function legend(){
+  let h='';
+  if (mode==='slow') h = T('Tile colour: share of slow (&lt;10 km/h) reports<br><i style="background:linear-gradient(90deg,#4cc3a6,#f2b84b,#ef5b5b)"></i>0 % → 60 %+ · faint = only 1–2 vehicles',
+                          'Each hexagon is a small patch of the map. Colour = share of vehicles crawling slower than 10 km/h (green = flowing, red = mostly stuck)<br><i style="background:linear-gradient(90deg,#4cc3a6,#f2b84b,#ef5b5b)"></i>0 % → 60 %+ · faint = only 1–2 vehicles, too few to be sure');
+  if (mode==='density') h = T('Tile colour: observations per window',
+                              'Colour = how many location reports came from that patch recently (darker blue = more reports)');
+  if (mode==='partition') h = T('Tile colour: Kafka partition of <b>gps.raw</b><br>(key = coarse H3 cell → spatial locality)',
+                                'Colour = which data lane carries the location updates for that patch<br>(neighbouring patches share a lane, so related data stays together)');
+  if (mode==='instance') h = T('Tile colour: fast-plane consumer instance<br>', 'Colour = which worker is processing that patch<br>')
+                             + Object.entries(instColor).map(([k,c])=>`<i style="background:${c}"></i>${esc(k)}`).join('<br>');
+  h += T('<br><i style="background:#7d8794"></i>Bengaluru road network &nbsp;<i style="background:#9aa4b2"></i>bottleneck',
+         '<br><i style="background:#7d8794"></i>Bengaluru roads &nbsp;<i style="background:#9aa4b2"></i>known traffic bottleneck');
+  h += T('<br><i style="background:#ef5b5b"></i>active geofence &nbsp;<i style="background:#f2b84b"></i>shadow<br><i style="background:#fff"></i>injected incident (truth)',
+         '<br><i style="background:#ef5b5b"></i>monitored area (active) &nbsp;<i style="background:#f2b84b"></i>monitored area (being tested)<br><i style="background:#fff"></i>staged test incident (known answer)');
+  $('legend').innerHTML = h;
+}
+document.querySelectorAll('#modebar button').forEach(b => b.onclick = () => {
+  document.querySelectorAll('#modebar button').forEach(x=>x.classList.remove('on')); b.classList.add('on'); mode=b.dataset.m; drawMap(); legend();
+});
+
+function drawMap(){
+  if (!snap) return;
+  hexLayer.clearLayers(); fenceLayer.clearLayers(); truthLayer.clearLayers(); vehicleLayer.clearLayers();
+  for (const t of snap.tiles){
+    const conf = Math.min(1, (t.v||1)/3);      // 1-2 vehicles in a tile: drawn faint (one stopped bus is not a jam)
+    const p = L.polygon(t.b, {color:colorFor(t), weight:0.6, fillColor:colorFor(t), fillOpacity: (mode==='slow'?0.25+0.55*Math.min(1,t.sf/0.5):0.55)*(mode==='slow'?0.35+0.65*conf:1), opacity:0.7*(mode==='slow'?0.4+0.6*conf:1)});
+    p.bindTooltip(T(`<b>${t.tile}</b><br>${t.n} obs · ${t.v} vehicles<br>mean ${fmt(t.sp,1)} km/h · slow ${fmt(t.sf*100)} %<br>partition ${t.part} · ${esc(t.inst)}`,
+                    `<b>${t.tile}</b><br>${t.n} location reports from ${t.v} vehicles<br>average speed ${fmt(t.sp,1)} km/h · ${fmt(t.sf*100)} % crawling slowly<br>data lane ${t.part} · worker ${esc(t.inst)}`), {sticky:true});
+    hexLayer.addLayer(p);
+  }
+  for (const g of snap.geofences)
+    fenceLayer.addLayer(L.circle([g.lat,g.lon],{radius:g.r,color:'#ef5b5b',weight:2,fill:true,fillOpacity:0.06}).bindTooltip(T(`geofence ${g.id}<br>r=${fmt(g.r)} m · from ${esc(g.prov)}`, `monitored area ${g.id}<br>radius ${fmt(g.r)} m · created from ${esc(g.prov)}`)));
+  for (const g of snap.shadow_geofences)
+    fenceLayer.addLayer(L.circle([g.lat,g.lon],{radius:g.r,color:'#f2b84b',weight:2,dashArray:'6 6',fill:false}).bindTooltip(T(`shadow ${g.id}`, `test-only monitored area ${g.id}`)));
+  for (const t of snap.truth)
+    truthLayer.addLayer(L.circle([t.lat,t.lon],{radius:t.radius_m,color:'#ffffff',weight:1.2,dashArray:'2 5',fill:false}).bindTooltip(T(`injected ${t.incident_id}${t.kind?'<br><b>'+esc(t.kind)+'</b> at '+esc(t.place):''}`, `staged test incident ${t.incident_id}${t.kind?'<br><b>'+esc(human(t.kind))+'</b> at '+esc(t.place):''}`)));
+  // Vehicle positions are labelled as LIVE or SIMULATED from their source metadata.
+  for (const v of (snap.vehicles||[]).slice(0,600)) {
+    const liveFix = v.data_mode === 'live';
+    const marker = L.circleMarker([v.lat,v.lon], {radius:3.4, color:liveFix?'#4cc3a6':'#b48cff',
+      weight:1, fillColor:liveFix?'#4cc3a6':'#b48cff', fillOpacity:.88});
+    marker.bindTooltip(`<b>${esc(v.vid)}</b> · ${liveFix?'LIVE GPS':'SIMULATED GPS'}<br>${fmt(v.speed,1)} km/h${v.route?'<br>Route '+esc(v.route):''}<br><span class="muted">${esc(v.src||'unknown source')}</span>`);
+    vehicleLayer.addLayer(marker);
+  }
+}
+
+const TYPES = ['GEOFENCE_ENTER','HOTSPOT_DETECTED','AGENT_DECISION','CACHED_DECISION','DISTILLED_CONGESTION','VERIFIER_REJECTED','PLAN_PROMOTED','APPROVAL_REQUIRED'];
+function drawFilters(){
+  $('afilters').innerHTML = ['ALL',...TYPES].map(t=>`<button class="${(alertFilter===t||(!alertFilter&&t==='ALL'))?'on':''}" data-t="${t}">${t==='ALL'?'all':T(t.toLowerCase().replace(/_/g,' '), alertLabel(t))}</button>`).join('');
+  document.querySelectorAll('#afilters button').forEach(b=>b.onclick=()=>{alertFilter=b.dataset.t==='ALL'?null:b.dataset.t; drawFilters(); drawAlerts();});
+}
+const seenAlerts = new Set();
+let cityFilter = 'bengaluru';
+function cityOf(a){
+  if (!snap.cities || snap.cities.length<2 || a.lat==null) return null;
+  let best=null; for (const c of snap.cities){ const d=Math.hypot(a.lat-c.center[0], a.lon-c.center[1]); if(!best||d<best[0]) best=[d,c]; }
+  return best[1];
+}
+function cityTag(a){
+  const c = cityOf(a); return c ? `<span class="tag" style="margin-right:6px">${esc(c.name.split(' (')[0])}</span>` : '';
+}
+function flyTo(lat,lon){ if (lat!=null) map.setView([lat,lon], 13); }
+function drawAlerts(){
+  if (!snap) return;
+  const list = snap.alerts.filter(a => (!alertFilter || a.type===alertFilter) &&
+                                       (!cityFilter || (cityOf(a)||{}).key===cityFilter)).slice(0,60);
+  $('alerts').innerHTML = list.map(a=>`<div class="al ${esc(a.severity)}" style="cursor:pointer" onclick="flyTo(${a.lat??'null'},${a.lon??'null'})" title="${T('show on map','show on the map')}"><div class="t"><span>${cityTag(a)}${T(esc(a.type), esc(alertLabel(a.type)))}</span><span>${new Date(a.ts*1000).toLocaleTimeString()}</span></div><div class="m">${esc(a.message)}</div></div>`).join('') || `<div class="note">${snap.alerts.length ? T('no alerts for this city / filter yet — try "All alerts"','no warnings for this city or filter yet — try "All alerts"') : T('waiting for the first window to close…','waiting for the first batch of data…')}</div>`;
+  const total = (snap.alerts||[]).length;
+  $('acount').textContent = total ? T(`${total} since load`, `${total} since this page opened`) : '';
+  for (const a of snap.alerts.slice(0,30)){
+    if (seenAlerts.has(a.alert_id) || a.lat==null) continue; seenAlerts.add(a.alert_id);
+    if (!['AGENT_DECISION','HOTSPOT_DETECTED','CACHED_DECISION'].includes(a.type)) continue;
+    const m = L.circleMarker([a.lat,a.lon],{radius:7,color:a.type==='AGENT_DECISION'?'#b48cff':'#6aa7ff',weight:2,fillOpacity:0.4}).bindTooltip(esc(a.message));
+    alertLayer.addLayer(m); setTimeout(()=>alertLayer.removeLayer(m), 45000);
+  }
+}
+
+const ch = new Chart($('chart1'), {type:'line', data:{labels:[], datasets:[
+  {label:'events/s processed (15 s avg)', data:[], borderColor:'#4cc3a6', yAxisID:'y', tension:.3, pointRadius:0, borderWidth:2},
+  {label:'fast-plane p99 (ms)', data:[], borderColor:'#f2b84b', yAxisID:'y1', tension:.3, pointRadius:0, borderWidth:2},
+  {label:'agent latency (s ×100)', data:[], borderColor:'#b48cff', yAxisID:'y1', borderDash:[5,4], pointRadius:0, borderWidth:1.5, stepped:true}]},
+  options:{animation:false, responsive:true, interaction:{mode:'index',intersect:false},
+   plugins:{legend:{labels:{color:'#8a94a3',boxWidth:12,font:{size:11}}}},
+   scales:{x:{ticks:{color:'#8a94a3',maxTicksLimit:8,font:{size:10}},grid:{color:'#1f262f'}},
+           y:{position:'left',ticks:{color:'#4cc3a6'},grid:{color:'#1f262f'},beginAtZero:true,title:{display:true,text:'events/s',color:'#8a94a3'}},
+           y1:{position:'right',ticks:{color:'#f2b84b'},grid:{display:false},beginAtZero:true,title:{display:true,text:'ms',color:'#8a94a3'}}}}});
+const vch = new Chart($('vario'), {type:'bar', data:{labels:[], datasets:[{label:'γ̂(h)', data:[], backgroundColor:'#6aa7ff'}]},
+  options:{animation:false, plugins:{legend:{display:false}}, scales:{x:{title:{display:true,text:'grid lag h',color:'#8a94a3'},ticks:{color:'#8a94a3'}},y:{ticks:{color:'#8a94a3'},grid:{color:'#1f262f'},beginAtZero:true}}}});
+
+function sumv(o,k){ return Object.values(o||{}).reduce((s,x)=>s+(x[k]||0),0) }
+function maxv(o,k){ return Math.max(0,...Object.values(o||{}).map(x=>x[k]||0)) }
+function first(o){ return Object.values(o||{})[0] || {} }
+
+function drawKPIs(){
+  const m = snap.metrics, fp=m.fastplane||{}, fpCity=m.fastplane_city||{},
+        gate=first(m.gate), gateCity=m.gate_city||{}, sp=first(m.slowplane), slowCity=m.slowplane_city||{};
+  const ss = snap.series.slice(-3);
+  $('k_eps').textContent = fmt(ss.length ? ss.reduce((a,b)=>a+b.eps,0)/ss.length : sumv(fpCity,'events_per_s'));
+  $('k_eps_s').textContent = T(`selected city · ${cityFilter}`, `GPS updates per second in ${snap.city || cityFilter}`);
+  $('k_p99').textContent = fmt(maxv(fpCity,'p99_ms')) + ' ms';
+  $('k_p99_s').textContent = T(`p50 ${fmt(maxv(fpCity,'p50_ms'))} ms · city-specific fast path`,
+                               `typical delay ${fmt(maxv(fpCity,'p50_ms'))} ms for this city's updates`);
+  $('k_inv').textContent = fmt(sumv(gateCity,'invocations'));
+  $('k_inv_s').textContent = T(`${fmt(sumv(gateCity,'tests'))} tile tests · ${fmt(sumv(gateCity,'escalated_tiles'))} escalated`,
+                               `${fmt(sumv(gateCity,'tests'))} patches checked · ${fmt(sumv(gateCity,'escalated_tiles'))} sent to the AI for this city`);
+  $('k_cache').textContent = fmt(sumv(gateCity,'cache_hits'));
+  const vs = (gate._labels||{}).variogram||{};
+  $('k_cache_s').textContent = T(`city cache reuse · k* = ${vs.k_star ?? '–'}`,
+                                 `earlier AI answers reused for similar events in this city`);
+  $('k_late').textContent = `${fmt(sumv(fpCity,'late_total'))} / ${fmt(sumv(fpCity,'dlq_total'))}`;
+  $('k_ver').textContent = fmt(sumv(slowCity,'verifier_rejections'));
+  $('k_ver_s').textContent = T(`${fmt(sumv(slowCity,'patches'))} patches · ${fmt(sumv(slowCity,'promoted'))} promoted · ${fmt(sumv(slowCity,'held'))} held`,
+                               `${fmt(sumv(slowCity,'patches'))} changes suggested · ${fmt(sumv(slowCity,'promoted'))} put into use · ${fmt(sumv(slowCity,'held'))} waiting for approval in this city`);
+  $('planv').textContent = 'v'+snap.plan.version;
+  $('shadowchip').style.display = snap.shadow_version ? '' : 'none';
+  $('shadowv').textContent = snap.shadow_version ? 'v'+snap.shadow_version : '';
+  $('planner').textContent = ((sp._labels||{}).planner) || '–';
+  $('plantext').textContent = snap.plan.text;
+  $('plantag').textContent = T(`v${snap.plan.version} · ${snap.geofences.length} geofence(s) · ${snap.plan.distilled.length} distilled op(s)`,
+                               `version ${snap.plan.version} · ${snap.geofences.length} monitored area(s) · ${snap.plan.distilled.length} quick rule(s)`);
+  $('planplain').innerHTML = (snap.geofences.length
+      ? '<b>Monitored areas active right now:</b><br>' + snap.geofences.map(g=>`• ${esc(g.id)}: a circle with a ${fmt(g.r)} m radius${g.prov ? ', created from ' + esc(g.prov) : ''}`).join('<br>')
+      : 'No monitored areas are active right now.')
+    + `<br>${snap.plan.distilled.length} quick rule(s) learned from the AI are running in the fast path.`;
+  const latestWe = Math.max(0,...snap.tiles.map(t=>t.we));
+  $('clock').textContent = latestWe ? new Date(latestWe*1000).toLocaleTimeString()+T(' (last window)',' (most recent update)') : '–';
+  // series
+  const s = snap.series.slice(-90);
+  ch.data.labels = s.map(x=>new Date(x.t*1000).toLocaleTimeString());
+  const sm = s.map((x,i)=>{const w=s.slice(Math.max(0,i-2),i+1); return w.reduce((a,b)=>a+b.eps,0)/w.length;});
+  ch.data.datasets[0].data = sm; ch.data.datasets[1].data = s.map(x=>x.p99); ch.data.datasets[2].data = s.map(x=>(x.agent_delay||0)*100);
+  ch.update();
+  const g = vs.gamma || {};
+  vch.data.labels = Object.keys(g); vch.data.datasets[0].data = Object.values(g).map(v=>v??0);
+  vch.data.datasets[0].backgroundColor = Object.keys(g).map(h=>Number(h)<=(vs.k_star||0)?'#4cc3a6':'#3a4656'); vch.update();
+  $('varionote').innerHTML = T(`Mean squared difference of the agent's own risk judgements at grid lag h (pairs: ${Object.values(vs.pairs||{}).join(', ')||'–'}). Cache reuse allowed up to k* = <b>${vs.k_star??0}</b> where γ̂(h) ≤ ε = ${vs.eps??'–'}.`,
+                              `Each bar shows how different the AI’s risk judgements are for map patches that are that many steps apart (a shorter bar means more alike). Green bars: similar enough that an earlier answer can be reused — up to <b>${vs.k_star??0}</b> steps away. Number of comparisons per distance: ${Object.values(vs.pairs||{}).join(', ')||'–'}. Similarity limit: ${vs.eps??'–'}.`);
+  $('decisions').innerHTML = snap.decisions.slice(0,8).map(d=>`<div class="al ${d.label==='congestion_incident'?'high':'low'}"><div class="t"><span>${T(esc(d.label)+' · '+esc(d.source), esc(d.label==='congestion_incident'?'traffic jam / incident':human(d.label))+' · '+esc(SOURCE_LABEL[d.source]||human(d.source)))}</span><span>${T('risk '+fmt(d.risk,2), 'risk score '+fmt(d.risk,2)+' (higher = worse)')}</span></div><div class="m">${esc(d.rationale || T('reused from '+d.reused_from+' (cos '+d.similarity+')', 'reused from '+d.reused_from+' (similarity '+d.similarity+')'))}</div></div>`).join('') || `<div class="note">${T('no escalations yet','The AI has not been asked to review anything yet')}</div>`;
+}
+
+function drawKafka(){
+  const k = snap.kafka||{};
+  $('kdot').className = 'dot ' + (k.ts && snap.now-k.ts<20 ? 'ok':'bad');
+  $('kstat').textContent = k.ts ? T(`${(k.topics||[]).length} topics`, `${(k.topics||[]).length} data channels`) : 'connecting';
+  $('topics').innerHTML = (k.topics||[]).map(t=>{
+    const tp = isSimple() ? topicPlain(t.name) : null;
+    const nameCell = tp ? `${esc(tp)}<br><span class="muted">${esc(t.name)}</span>` : esc(t.name);
+    return `<tr><td>${nameCell}</td><td><div class="parts">${t.partitions.map(p=>`<span class="pt" title="${T('partition','lane')} ${p.p}">${T('p'+p.p+':'+fmt(p.end), 'lane '+p.p+': '+fmt(p.end))}</span>`).join('')}</div></td><td>${fmt(t.messages)}</td></tr>`;
+  }).join('');
+  for (const g of (k.groups||[])) {   // fallback: instances self-report their assigned partitions
+    if (g.group==='tessera-fastplane' && !g.members.length)
+      g.members = Object.entries((snap.metrics||{}).fastplane||{}).map(([inst,v])=>({client:inst, assigned:((v._labels||{}).partitions||[]).map(p=>`gps.raw[${p}]`)}));
+  }
+  $('groups').innerHTML = (k.groups||[]).map(g=>{
+    const gp = isSimple() ? groupPlain(g.group) : null;
+    const nameCell = gp ? `${esc(gp)}<br><span class="muted">${esc(g.group)}</span>` : esc(g.group);
+    return `<tr><td>${nameCell}</td><td>${T(esc(g.state), esc(stateLabel(g.state)))}</td><td>${g.members.map(m=>`<div><span style="color:var(--accent)">${esc(m.client.replace(/-tessera.*/,''))}</span> → ${m.assigned.map(a=>assignedLabel(a)).join(' ')||'–'}</div>`).join('')||'–'}</td><td>${g.lag==null?'–':fmt(g.lag)}</td></tr>`;
+  }).join('') || `<tr><td colspan=4 class="muted">${T('waiting for consumer groups…','waiting for the worker teams to start…')}</td></tr>`;
+  $('bcast').textContent = k.broadcast_groups
+    ? T(`+ ${k.broadcast_groups} broadcast groups (one per instance) so every fast-plane / slow-plane / dashboard instance sees every plan patch.`,
+        `+ ${k.broadcast_groups} extra listener groups (one per program copy) so that every fast-processing, AI and dashboard copy sees every change to the rules.`)
+    : '';
+}
+
+function renderHistory(h){
+  const now = Date.now()/1000;
+  $('plans').innerHTML = (h.plans||[]).slice(0,12).map(p=>`<tr><td>v${p.version}</td><td>${T(esc(p.stage), esc(STAGE_LABEL[p.stage]||human(p.stage)))}</td><td>${T(esc(p.disposition), esc(DISP_LABEL[p.disposition]||human(p.disposition)))}</td><td style="font-family:var(--sans)">${esc(p.reason||T('baseline','starting rules'))}</td></tr>`).join('');
+  $('ver').innerHTML = (h.verifier||[]).map(v=>`<tr><td>${T(esc(v.fault), esc(v.fault==='agent error (repair)' ? 'AI error (automatically repaired)' : human(v.fault)))}</td><td>${v.caught}/${v.total}</td></tr>`).join('') || `<tr><td colspan=2 class="muted">${T('no faults injected yet','no deliberate mistakes tested yet')}</td></tr>`;
+  const vv = (h.verifier_valid||[])[0]; if (vv && vv.total) $('ver').innerHTML += `<tr><td class="muted">${T('valid patches accepted','correct changes accepted')}</td><td>${vv.passed}/${vv.total}</td></tr>`;
+  $('det').innerHTML = (h.detection||[]).map(d=>`<tr><td>${d.place?'<b>'+esc(d.place)+'</b><br><span class="muted">'+esc(T(d.kind, human(d.kind)))+'</span> ':esc(d.incident_id)} <span class="muted">${new Date(d.start_ts*1000).toLocaleTimeString()}</span></td><td>${d.detect_s==null?'<span class="muted">'+T('not yet','not noticed yet')+'</span>':T('+'+fmt(d.detect_s,0)+' s', fmt(d.detect_s,0)+' s after it started')}</td></tr>`).join('') || (cityFilter!=='bengaluru' ? `<tr><td colspan=2 class="muted">${T('no staged incidents are injected in this city; feed status shows whether GPS is live or simulated','No artificial incidents are injected for this city. Check the feed status above to distinguish live from simulated GPS.')}</td></tr>` : `<tr><td colspan=2 class="muted">${T('first incident ~45 s after start','the first staged incident appears about 45 s after start')}</td></tr>`);
+  $('ckpt').innerHTML = (h.checkpoints||[]).map(c=>`<tr><td>${T('gps.raw['+c.partition+']','lane '+c.partition)}</td><td>${fmt(c.next_offset)}</td><td>${esc((c.instance||'').slice(0,14))}</td><td>${fmt(now-c.t)} ${T('s','s ago')}</td></tr>`).join('') || `<tr><td colspan=4 class="muted">${T('first checkpoint after 10 s','the first saved progress point appears after 10 s')}</td></tr>`;
+  $('storage').innerHTML = (h.storage||[]).map(s=>`<tr><td>${T(esc(s.t), esc(STORAGE_LABEL[s.t]||human(s.t)))}</td><td style="text-align:right">${fmt(s.n)}</td></tr>`).join('');
+  $('gem').innerHTML = (h.gem||[]).slice(0,4).map(g=>{const age=now-g.vf; const c=g.confidence0*Math.pow(2,-age/g.half_life_s); return `<div style="margin-bottom:6px"><span style="color:${c<0.2?'#5b6573':'#e6e9ee'}">${esc(g.claim)}</span><br><span class="muted" style="font-family:var(--mono);font-size:11px">${T(esc(g.fact_class)+' · conf '+fmt(c,2)+' (t½ '+fmt(g.half_life_s/60)+' min)'+(c<0.2?' · decayed, excluded':''), esc(human(g.fact_class))+' · confidence '+fmt(c*100)+' % (fades by half every '+fmt(g.half_life_s/60)+' min)'+(c<0.2?' · too old, no longer used':''))}</span></div>`}).join('') || T('empty','nothing remembered yet');
+  $('held').innerHTML = (h.held||[]).map(x=>`<div style="margin-bottom:8px"><b>${T('v'+x.version,'Rules version v'+x.version)}</b> ${esc(x.reason)} <span class="muted" style="font-family:var(--mono);font-size:11px">· ${T('auto-withdraws in','cancelled automatically in')} ${fmt(Math.max(0,(300-(now-x.t))/60),1)} min</span><br><button class="btn go" onclick="ctl({type:'approve',version:${x.version}})">Approve</button><button class="btn" onclick="ctl({type:'reject',version:${x.version}})">Reject</button></div>`).join('') || T('none — large-radius geofences (&gt;1.3 km) wait here for a human','Nothing waiting. Very large monitored areas (radius over 1.3 km) need a person to approve them.');
+}
+async function refreshHistory(){
+  try{
+    const h = await (await fetch('/api/history?city='+encodeURIComponent(cityFilter||'bengaluru'))).json();
+    if (h.error) return;
+    lastHist = h;
+    renderHistory(h);
+  }catch(e){}
+}
+
+async function ctl(body){ await fetch('/api/control',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}); setTimeout(refreshHistory,1500); }
+function renderBench(){
+  const r = lastBench; if (!r) return;
+  $('benchout').innerHTML = T(`overall catch rate <b>${fmt(r.overall_catch_rate*100,1)} %</b> · false rejections ${fmt(r.false_rejection_rate*100,1)} %<br>` +
+      Object.entries(r.catch_rate).map(([k,v])=>`${esc(k)}: ${fmt(v*100)} %`).join('<br>'),
+    `Mistakes caught: <b>${fmt(r.overall_catch_rate*100,1)} %</b> · correct changes wrongly blocked: ${fmt(r.false_rejection_rate*100,1)} %<br>` +
+      Object.entries(r.catch_rate).map(([k,v])=>`${esc(human(k))}: ${fmt(v*100)} % caught`).join('<br>'));
+}
+async function bench(){
+  $('benchout').textContent = 'running…';
+  lastBench = await (await fetch('/api/verifier-bench')).json();
+  renderBench();
+}
+
+async function tick(){
+  try{
+    snap = await (await fetch('/api/snapshot?city='+encodeURIComponent(cityFilter||'bengaluru'))).json();
+    if (snap.cities && snap.cities.length) {
+      if (!snap.cities.some(c=>c.key===cityFilter)) cityFilter = snap.cities[0].key;
+      $('city').textContent = snap.city || cityFilter;
+      if (snap.cities.length > 1 && !$('citybar').dataset.done) {
+        $('citybar').innerHTML = `<label for="citySelect" class="muted">CITY</label><select id="citySelect" class="btn" style="margin:0;min-width:155px">${snap.cities.map(c=>`<option value="${esc(c.key)}">${esc(c.name)}</option>`).join('')}</select>`;
+        $('citybar').style.display='inline-flex';
+        $('citybar').dataset.done='1';
+        $('citySelect').value=cityFilter;
+        $('citySelect').addEventListener('change', async ev=>{
+          cityFilter=ev.target.value;
+          const selected=snap.cities.find(c=>c.key===cityFilter);
+          if(selected){map.invalidateSize();map.setView(selected.center,selected.zoom||12);centered=true;}
+          loadedTransitCity=null; transitData=null;
+          await loadRoads(cityFilter); await loadTransit(cityFilter);
+          tick(); refreshHistory();
+        });
+      } else if ($('citySelect')) $('citySelect').value=cityFilter;
+      const selected = snap.cities.find(c=>c.key===cityFilter);
+      const feed = (snap.feed_status||{})[cityFilter]||{};
+      const sched = feed.schedule||{};
+      const schedText = sched.state==='ready' ? `${sched.routes} routes · ${sched.stops} stops` :
+                        sched.state==='loading' ? 'schedule loading' :
+                        sched.state==='unavailable' ? 'schedule unavailable' : 'schedule pending';
+      const positionText = feed.live_positions || 'position source status unavailable';
+      $('feedState').textContent = `${selected?selected.name:cityFilter} · ${cityFilter==='bengaluru'?'road network':cityFilter==='delhi'?positionText:`${schedText} · ${positionText}`}`;
+      if (selected && (!centered || snap.selected_city!==cityFilter)) {
+        map.invalidateSize(); map.setView(selected.center,selected.zoom||12); centered=true;
+      }
+      if (loadedTransitCity !== cityFilter && ['chennai','hyderabad','hubli_dharwad'].includes(cityFilter)) loadTransit(cityFilter);
+    }
+    if (lmCity !== cityFilter && snap.landmarks){
+      lmLayer.clearLayers();
+      for (const l of snap.landmarks)
+        lmLayer.addLayer(L.circleMarker([l.lat,l.lon],{radius:3,color:'#9aa4b2',weight:1,fillOpacity:0.8})
+          .bindTooltip(esc(l.name),{direction:'top',offset:[0,-4]}));
+      lmCity = cityFilter;
+    }
+    drawMap(); drawAlerts(); drawKPIs(); drawKafka();
+  }catch(e){ $('kdot').className='dot bad'; $('kstat').textContent='dashboard offline'; }
+}
+async function loadRoads(city){
+  roadLayer.clearLayers();
+  try{
+    const r = await (await fetch('/api/roads?city='+encodeURIComponent(city||'bengaluru'))).json();
+    if (r.edges && r.edges.length){
+      roadLayer.addLayer(L.polyline(r.edges, {color:'#7d8794', weight:1, opacity:0.55, interactive:false}));
+      map.attributionControl.addAttribution('Roads: BMTC GTFS (ODbL)');
+    }
+  }catch(e){}
+}
+function renderTransitList(){
+  const panel=$('transitPanel');
+  if(!transitData || !['chennai','hyderabad','hubli_dharwad'].includes(cityFilter)){
+    panel.style.display='none'; return;
+  }
+  panel.style.display='';
+  $('routeCountTag').textContent=`${transitData.route_count} routes · ${transitData.stops.length} stops`;
+  const query=($('routeSearch').value||'').trim().toLowerCase();
+  const routes=(transitData.routes||[]).filter(r=>
+    [r.id,r.short,r.name].some(v=>String(v||'').toLowerCase().includes(query)));
+  const visible=routes.slice(0,40);
+  $('routeRows').innerHTML=visible.map(r=>{
+    const shapeShown=(transitData.shapes||[]).some(s=>s.route_id===r.id);
+    return `<tr><td><b>${esc(r.short||r.id)}</b><br><span class="muted">${esc(r.id)}</span></td><td>${esc(r.name||'—')}</td><td>${esc(r.shape_id||'—')}</td><td>${shapeShown?'shown':'schedule only'}</td></tr>`;
+  }).join('')||`<tr><td colspan="4" class="muted">No routes match this search.</td></tr>`;
+  $('transitNote').textContent=`Full GTFS route list loaded. Showing ${visible.length} of ${routes.length} matching routes. Map draws ${transitData.shapes.length} of ${transitData.shape_count} available route paths and up to ${transitData.map_stops.length} stops for performance. Scheduled routes/stops are not live GPS.`;
+}
+if ($('routeSearch')) $('routeSearch').addEventListener('input', renderTransitList);
+
+async function loadTransit(city){
+  const token=++transitLoadToken;
+  loadedTransitCity=city;
+  transitRouteLayer.clearLayers(); transitStopLayer.clearLayers(); transitData=null;
+  renderTransitList();
+  if (!['chennai','hyderabad','hubli_dharwad'].includes(city)) return;
+  $('feedState').textContent='Loading Mobility Database schedule…';
+  for(let attempt=0;attempt<40;attempt++){
+    try{
+      const response=await fetch('/api/transit/'+encodeURIComponent(city));
+      const result=await response.json();
+      if(token!==transitLoadToken) return;
+      if(result.transit){
+        transitData=result.transit;
+        renderTransitList();
+        for(const shape of (transitData.shapes||[])){
+          const line=L.polyline(shape.points,{color:'#6aa7ff',weight:1.4,opacity:.55,interactive:true});
+          line.bindTooltip(`Scheduled route ${esc(shape.name||shape.route_id)} · GTFS shape`);
+          transitRouteLayer.addLayer(line);
+        }
+        for(const stop of (transitData.map_stops||transitData.stops||[])){
+          const marker=L.circleMarker([stop.lat,stop.lon],{radius:2.2,color:'#f2b84b',weight:.7,fillOpacity:.75});
+          marker.bindTooltip(`Scheduled stop: ${esc(stop.name)}`);
+          transitStopLayer.addLayer(marker);
+        }
+        $('feedState').textContent=`${city.replace('_',' ')} · ${transitData.route_count} routes · ${transitData.stops.length} stops · ${transitData.shapes.length}/${transitData.shape_count} paths shown · SIM GPS`;
+        map.attributionControl.addAttribution('GTFS schedules: <a href="https://mobilitydatabase.org/" target="_blank" rel="noopener">Mobility Database</a>');
+        return;
+      }
+      const state=(result.status||{}).state;
+      if(state==='unavailable'){
+        $('feedState').textContent=`${city.replace('_',' ')} · schedule unavailable (${(result.status.error||'check feed status').slice(0,70)}) · GPS demo active`;
+        $('transitNote').textContent=`Schedule feed unavailable: ${result.status.error||'no error detail'}. Simulated GPS remains available; check /api/transit/${city} for feed status.`;
+        return;
+      }
+      $('feedState').textContent='Loading Mobility Database schedule…';
+    }catch(e){}
+    await new Promise(resolve=>setTimeout(resolve,2500));
+  }
+  if(token===transitLoadToken) $('feedState').textContent=`${city.replace('_',' ')} · schedule timed out · GPS demo active`;
+}
+
+function applyExplanationMode(m) {
+  explanationMode = m;
+  document.body.classList.toggle('simple', m === 'simple');
+  $('simpleMode').setAttribute('aria-pressed', m === 'simple' ? 'true' : 'false');
+  $('technicalMode').setAttribute('aria-pressed', m === 'technical' ? 'true' : 'false');
+  $('simpleMode').classList.toggle('go', m === 'simple');
+  $('technicalMode').classList.toggle('go', m === 'technical');
+  applyStatic();
+  // chart wording
+  ch.data.datasets[0].label = T('events/s processed (15 s avg)', 'Location updates handled per second (15 s average)');
+  ch.data.datasets[1].label = T('fast-plane p99 (ms)', 'Delay for the slowest 1% of updates (ms)');
+  ch.data.datasets[2].label = T('agent latency (s ×100)', 'AI assistant delay (seconds × 100, so it fits the chart)');
+  ch.options.scales.y.title.text = T('events/s', 'updates per second');
+  ch.options.scales.y1.title.text = T('ms', 'milliseconds / scaled AI delay');
+  ch.update();
+  vch.data.datasets[0].label = T('γ̂(h)', 'Difference between nearby decisions');
+  vch.options.scales.x.title.text = T('grid lag h', 'steps apart on the map grid');
+  vch.options.scales.y.title = {display: isSimple(), text: 'how different (lower = more alike)', color: '#8a94a3'};
+  vch.update();
+  // live sections
+  drawFilters(); legend();
+  if (snap) { drawMap(); drawAlerts(); drawKPIs(); drawKafka(); }
+  if (lastHist) { try { renderHistory(lastHist); } catch (e) {} }
+  renderBench();
+}
+$('simpleMode').addEventListener('click', () => applyExplanationMode('simple'));
+$('technicalMode').addEventListener('click', () => applyExplanationMode('technical'));
+
+drawFilters(); legend(); loadRoads(cityFilter); loadTransit(cityFilter); tick(); refreshHistory(); applyExplanationMode('technical');
+setInterval(tick, 2000); setInterval(refreshHistory, 6000);
+</script>
+</body>
+</html>

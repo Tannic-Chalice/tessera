@@ -1,0 +1,238 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0f1720">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>TESSERA Navigator</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<style>
+:root{--bg:#0f1720;--panel:#16212d;--line:#263544;--fg:#e8eef4;--mute:#8da0b3;--accent:#3b9eff;--warn:#f5b941;--bad:#ff5c5c;--ok:#3ecf8e}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--fg);font:15px/1.35 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;overflow:hidden}
+#map{position:absolute;inset:0}
+.leaflet-container{background:#0b1118}
+.leaflet-tile-pane{filter:brightness(.62) saturate(.7) contrast(1.05)}
+#banner{position:absolute;top:calc(10px + env(safe-area-inset-top));left:10px;right:10px;z-index:900;background:var(--panel);
+  border:1px solid var(--line);border-radius:14px;padding:12px 14px;box-shadow:0 6px 24px #0008;display:none}
+#banner.reroute{border-color:var(--warn);background:#2a2412}
+#banner.warn{border-color:#a07a2a}
+#banner.arrived{border-color:var(--ok)}
+#banner .k{font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--mute);margin-bottom:4px}
+#banner.reroute .k{color:var(--warn)}
+#banner .t{font-size:17px;font-weight:600}
+#sheet{position:absolute;left:0;right:0;bottom:0;z-index:900;background:var(--panel);border-top:1px solid var(--line);
+  border-radius:18px 18px 0 0;padding:14px 14px calc(14px + env(safe-area-inset-bottom));box-shadow:0 -6px 24px #0008}
+h1{font-size:16px;margin:0 0 10px;display:flex;justify-content:space-between;align-items:center}
+h1 small{font-weight:400;color:var(--mute);font-size:12px}
+label{display:block;font-size:12px;color:var(--mute);margin:8px 0 4px}
+.row{display:flex;gap:8px}
+select,button{font:inherit;color:var(--fg);background:#0f1924;border:1px solid var(--line);border-radius:10px;padding:11px 10px;width:100%}
+select{appearance:none}
+button{cursor:pointer;font-weight:600}
+button.go{background:var(--accent);border-color:var(--accent);color:#04121f}
+button.red{border-color:#7a2f2f;color:#ffb3b3}
+button.pin{width:auto;padding:11px 12px}
+button.pin.on{border-color:var(--accent);color:var(--accent)}
+.stats{display:flex;gap:8px;margin-bottom:10px}
+.stat{flex:1;background:#0f1924;border:1px solid var(--line);border-radius:10px;padding:8px 10px}
+.stat b{display:block;font-size:20px}
+.stat span{font-size:11px;color:var(--mute);text-transform:uppercase;letter-spacing:.05em}
+#log{max-height:22vh;overflow:auto;margin-top:10px;font-size:13px;color:var(--mute)}
+#log div{padding:6px 0;border-top:1px solid var(--line)}
+#log .reroute{color:var(--warn)} #log .warn{color:#e0c27a} #log .demo{color:#9cc3ff} #log .error{color:var(--bad)}
+.hint{font-size:12px;color:var(--mute);margin-top:8px}
+.car{width:26px;height:26px}
+.hidden{display:none!important}
+</style>
+</head>
+<body>
+<div id="map"></div>
+<div id="banner"><div class="k" id="bk">Navigation</div><div class="t" id="bt"></div></div>
+
+<div id="sheet">
+  <div id="plan">
+    <h1>TESSERA Navigator <small>Bengaluru · virtual car</small></h1>
+    <label>From</label>
+    <div class="row"><select id="from"></select><button class="pin" id="pinFrom" title="Tap the map to choose">📍</button></div>
+    <label>To</label>
+    <div class="row"><select id="to"></select><button class="pin" id="pinTo" title="Tap the map to choose">📍</button></div>
+    <label>Playback speed</label>
+    <select id="spd"><option value="1">1× real time</option><option value="5" selected>5× faster</option>
+      <option value="10">10× faster</option><option value="20">20× faster</option></select>
+    <div class="row" style="margin-top:12px"><button class="go" id="start">Start trip</button></div>
+    <div class="hint" id="planHint">Routes use the live traffic TESSERA is computing right now. Voice guidance starts when you tap Start.</div>
+  </div>
+
+  <div id="drive" class="hidden">
+    <div class="stats">
+      <div class="stat"><b id="sSpeed">–</b><span>km/h</span></div>
+      <div class="stat"><b id="sKm">–</b><span>km left</span></div>
+      <div class="stat"><b id="sEta">–</b><span>min ETA</span></div>
+    </div>
+    <div class="row">
+      <button class="red" id="block">Block road ahead (demo)</button>
+      <select id="spd2" style="max-width:96px"><option value="1">1×</option><option value="5">5×</option>
+        <option value="10">10×</option><option value="20">20×</option></select>
+    </div>
+    <div class="row" style="margin-top:8px">
+      <button id="voice">🔊 Voice on</button><button id="follow">Follow car</button><button id="end">End</button>
+    </div>
+    <div id="log"></div>
+  </div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const map = L.map('map', {zoomControl:false, attributionControl:true}).setView([12.955, 77.61], 12);
+L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+  {maxZoom:19, attribution:'© OpenStreetMap · traffic: TESSERA'}).addTo(map);
+
+let places = [], trip = null, since = 0, version = -1, voiceOn = true, follow = true, pinMode = null, poller = null;
+let routeLine = null, doneLine = null, car = null, fenceLayer = L.layerGroup().addTo(map), tileLayer = L.layerGroup().addTo(map);
+let fromMk = null, toMk = null, blockMk = null, custom = {from:null, to:null};
+
+const carIcon = h => L.divIcon({className:'', iconSize:[26,26], iconAnchor:[13,13], html:
+  `<svg class="car" viewBox="0 0 26 26" style="transform:rotate(${h}deg)"><circle cx="13" cy="13" r="12" fill="#3b9eff" fill-opacity=".25"/>
+   <path d="M13 3 L20 21 L13 17 L6 21 Z" fill="#3b9eff" stroke="#e8eef4" stroke-width="1.4"/></svg>`});
+const dot = c => L.divIcon({className:'', iconSize:[14,14], iconAnchor:[7,7],
+  html:`<div style="width:14px;height:14px;border-radius:50%;background:${c};border:2px solid #fff"></div>`});
+
+async function api(path, opt) {
+  const r = await fetch(path, opt);
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.error || r.statusText);
+  return j;
+}
+
+function fill(sel, def) {
+  sel.innerHTML = places.map((p, i) => `<option value="${i}">${p.name}</option>`).join('') +
+    '<option value="custom">📍 Point on map</option>';
+  sel.value = String(def);
+}
+function point(which) {
+  const v = $(which).value;
+  return v === 'custom' ? custom[which] : (places[+v] ? [places[+v].lat, places[+v].lon] : null);
+}
+function showEnds() {
+  const a = point('from'), b = point('to');
+  if (fromMk) map.removeLayer(fromMk); if (toMk) map.removeLayer(toMk);
+  if (a) fromMk = L.marker(a, {icon:dot('#3ecf8e')}).addTo(map);
+  if (b) toMk = L.marker(b, {icon:dot('#ff5c5c')}).addTo(map);
+  if (a && b && !trip) map.fitBounds([a, b], {padding:[40, 260]});
+}
+
+api('/api/nav/places').then(p => {
+  places = p;
+  const iF = places.findIndex(x => x.name.startsWith('RV College')), iT = places.findIndex(x => x.name === 'Central Silk Board');
+  fill($('from'), iF < 0 ? 0 : iF); fill($('to'), iT < 0 ? 1 : iT); showEnds();
+}).catch(e => banner('error', 'Navigator unavailable', e.message));
+
+['from', 'to'].forEach(w => $(w).addEventListener('change', () => {
+  if ($(w).value === 'custom') setPin(w); else showEnds();
+}));
+function setPin(w) {
+  pinMode = pinMode === w ? null : w;
+  $('pinFrom').classList.toggle('on', pinMode === 'from'); $('pinTo').classList.toggle('on', pinMode === 'to');
+  $('planHint').textContent = pinMode ? `Tap the map to set the ${pinMode === 'from' ? 'start' : 'destination'}.` :
+    'Routes use the live traffic TESSERA is computing right now.';
+}
+$('pinFrom').onclick = () => setPin('from'); $('pinTo').onclick = () => setPin('to');
+map.on('click', e => {
+  if (!pinMode || trip) return;
+  custom[pinMode] = [e.latlng.lat, e.latlng.lng]; $(pinMode).value = 'custom'; setPin(pinMode); showEnds();
+});
+
+function speak(text) {
+  if (!voiceOn || !('speechSynthesis' in window)) return;
+  const u = new SpeechSynthesisUtterance(text);
+  const v = speechSynthesis.getVoices().find(v => /en[-_]IN/i.test(v.lang)) || speechSynthesis.getVoices().find(v => /^en/i.test(v.lang));
+  if (v) u.voice = v;
+  u.rate = 1.0; speechSynthesis.cancel(); speechSynthesis.speak(u);
+}
+function banner(kind, title, text) {
+  const b = $('banner'); b.className = kind; b.style.display = 'block';
+  $('bk').textContent = title; $('bt').textContent = text;
+}
+const TITLES = {start:'Trip started', reroute:'Rerouting', warn:'Traffic ahead', arrived:'Arrived', demo:'Demo', error:'Error'};
+
+$('start').onclick = async () => {
+  const a = point('from'), b = point('to');
+  if (!a || !b) return banner('warn', 'Choose places', 'Pick a start and a destination first.');
+  if ('speechSynthesis' in window) speechSynthesis.speak(new SpeechSynthesisUtterance(''));   // unlock audio on mobile
+  $('start').disabled = true; $('start').textContent = 'Planning…';
+  try {
+    trip = await api('/api/nav/start', {method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({origin:a, dest:b, speedup:+$('spd').value})});
+    since = 0; version = -1; $('spd2').value = String(trip.speedup);
+    $('plan').classList.add('hidden'); $('drive').classList.remove('hidden'); $('log').innerHTML = '';
+    render(trip); poller = setInterval(poll, 1000);
+  } catch (e) { banner('error', 'Could not plan route', e.message); }
+  $('start').disabled = false; $('start').textContent = 'Start trip';
+};
+
+async function poll() {
+  if (!trip) return;
+  try { render(await api(`/api/nav/trip/${trip.id}?since=${since}&have=${version}`)); }
+  catch (e) { banner('error', 'Connection', e.message); }
+}
+
+function render(s) {
+  if (s.path) {
+    version = s.version;
+    if (routeLine) map.removeLayer(routeLine);
+    routeLine = L.polyline(s.path, {color:'#3b9eff', weight:6, opacity:.9}).addTo(map);
+    if (since === 0) map.fitBounds(routeLine.getBounds(), {padding:[30, 30], paddingBottomRight:[30, 280]});
+  }
+  if (!car) car = L.marker([s.lat, s.lon], {icon:carIcon(s.heading), zIndexOffset:1000}).addTo(map);
+  car.setLatLng([s.lat, s.lon]); car.setIcon(carIcon(s.heading));
+  if (follow) map.panTo([s.lat, s.lon], {animate:true});
+  $('sSpeed').textContent = Math.round(s.speed); $('sKm').textContent = s.remaining_km.toFixed(1);
+  $('sEta').textContent = Math.round(s.eta_min);
+
+  tileLayer.clearLayers();
+  (s.ahead || []).forEach(t => {
+    const c = t.speed < 10 ? '#ff5c5c' : t.speed < 18 ? '#f5b941' : '#3ecf8e';
+    L.polygon(t.boundary, {color:c, weight:0, fillOpacity:.28}).bindTooltip(`${t.speed} km/h · ${Math.round(t.slow * 100)}% slow`).addTo(tileLayer);
+  });
+  fenceLayer.clearLayers();
+  (s.geofences || []).forEach(g => L.circle([g.lat, g.lon], {radius:g.r, color:'#ff5c5c', weight:3, dashArray:'6 6', fillOpacity:.18})
+    .bindTooltip('TESSERA incident zone ' + g.id).addTo(fenceLayer));
+  if (s.blocked_at && !blockMk) blockMk = L.marker(s.blocked_at, {icon:L.divIcon({className:'', iconSize:[24,24], iconAnchor:[12,12],
+    html:'<div style="font-size:20px">⚠️</div>'})}).bindTooltip('Injected accident (demo)').addTo(map);
+
+  (s.messages || []).forEach(m => {
+    since = m.n + 1;
+    const d = document.createElement('div'); d.className = m.kind;
+    d.textContent = new Date(m.t * 1000).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}) + ' · ' + m.text;
+    $('log').prepend(d);
+    if (m.kind !== 'demo') banner(m.kind, TITLES[m.kind] || 'Navigation', m.text);
+    if (m.voice) speak(m.text);
+    if (navigator.vibrate && m.kind === 'reroute') navigator.vibrate([200, 100, 200]);
+  });
+  if (s.status !== 'driving') { clearInterval(poller); $('block').disabled = true; }
+}
+
+$('block').onclick = async () => {
+  if (!trip) return;
+  $('block').disabled = true;
+  try { await api(`/api/nav/trip/${trip.id}/block`, {method:'POST'}); }
+  catch (e) { banner('error', 'Demo', e.message); }
+  setTimeout(() => { $('block').disabled = false; }, 20000);
+};
+$('spd2').onchange = () => trip && api(`/api/nav/trip/${trip.id}/speed?speedup=${$('spd2').value}`, {method:'POST'});
+$('voice').onclick = () => { voiceOn = !voiceOn; $('voice').textContent = voiceOn ? '🔊 Voice on' : '🔇 Voice off'; if (!voiceOn) speechSynthesis.cancel(); };
+$('follow').onclick = () => { follow = !follow; $('follow').textContent = follow ? 'Follow car' : 'Free map'; };
+$('end').onclick = async () => {
+  if (trip) { try { await api(`/api/nav/trip/${trip.id}/stop`, {method:'POST'}); } catch (e) {} }
+  clearInterval(poller); trip = null;
+  [routeLine, car, blockMk].forEach(l => l && map.removeLayer(l)); routeLine = car = blockMk = null;
+  tileLayer.clearLayers(); fenceLayer.clearLayers(); $('banner').style.display = 'none'; $('block').disabled = false;
+  $('drive').classList.add('hidden'); $('plan').classList.remove('hidden'); showEnds();
+};
+</script>
+</body>
+</html>

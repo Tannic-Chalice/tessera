@@ -1,0 +1,8 @@
+.env
+__pycache__/
+*.pyc
+
+# Android build outputs / local signing key
+android/build/
+android/tessera.keystore
+android/*.idsig

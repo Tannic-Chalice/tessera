@@ -1,0 +1,2 @@
+Optional: put Microsoft T-Drive taxi trajectory .txt files here (format: taxi_id,YYYY-MM-DD HH:MM:SS,longitude,latitude)
+then run:  set SOURCE_MODE=tdrive  &&  set SPEEDUP=60  &&  docker compose up -d producer
